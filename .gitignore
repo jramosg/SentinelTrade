@@ -1,0 +1,29 @@
+# secrets — never commit; create .env by hand on each machine
+.env
+
+# personal config: capital, contribution, pay day, owned holdings
+config.local.edn
+
+# runtime state (per machine; deleting can re-arm kill switches)
+.richbot-*.edn
+
+# runtime output: logs, trade/advice/equity records.
+# trades-live.csv is the fiscal record — never tracked, never deleted.
+*.log
+trades*.csv
+equity*.csv
+advice*.csv
+
+# personal data: Revolut statement + manual fundamentals
+resources/
+fundamentals.csv
+
+# tooling caches
+.cpcache/
+.clj-kondo/.cache
+.lsp/.cache
+.calva/repl.calva-repl
+.nrepl-port
+
+# os
+.DS_Store

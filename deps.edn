@@ -1,0 +1,26 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        org.clojure/data.json {:mvn/version "2.5.1"}}
+ :aliases
+ {:backtest {:main-opts ["-m" "richbot.core" "backtest"]}
+  :paper {:main-opts ["-m" "richbot.core" "paper"]}
+  :live {:main-opts ["-m" "richbot.core" "live"]}
+  :portfolio-live {:main-opts ["-m" "richbot.core" "portfolio-live"]}
+  :walkforward {:main-opts ["-m" "richbot.core" "walkforward"]}
+  :research {:main-opts ["-m" "richbot.core" "research"]}
+  :dca {:main-opts ["-m" "richbot.core" "dca"]}
+  :stocks {:main-opts ["-m" "richbot.core" "stocks"]}
+  :stocks-advisor {:main-opts ["-m" "richbot.core" "stocks-advisor"]}
+  :stocks-research {:main-opts ["-m" "richbot.core" "stocks-research"]}
+  :stocks-dca {:main-opts ["-m" "richbot.core" "stocks-dca"]}
+  :stocks-dips {:main-opts ["-m" "richbot.core" "stocks-dips"]}
+  :stocks-dips-scan {:main-opts ["-m" "richbot.core"
+                                 "stocks-dips-scan"]}
+  :stocks-dips-status {:main-opts ["-m" "richbot.core"
+                                   "stocks-dips-status"]}
+  :stocks-dips-backtest {:main-opts ["-m" "richbot.core"
+                                     "stocks-dips-backtest"]}
+  :stocks-dips-fundamentals-template
+  {:main-opts ["-m" "richbot.core"
+               "stocks-dips-fundamentals-template"]}
+  :report {:main-opts ["-m" "richbot.core" "report"]}}}

@@ -4,8 +4,10 @@ The stocks module mirrors the crypto portfolio — a safe
 accumulation core (world UCITS ETF, smart DCA) plus risky signal
 slots picked by walk-forward evidence — but it places **no orders**.
 It watches the market on daily candles (Yahoo Finance) and sends
-each action as a Telegram message; you execute it manually in
-Revolut. Internally it books every recommendation in a model
+each action as a Telegram message; you execute it manually in the
+slot's `:venue` (MyInvestor fund contributions for the core,
+Revolut trades for the stock slots). Internally it books every
+recommendation in a model
 portfolio at market price, so budgets, signals and stops stay
 consistent. Execute the recommended amounts to keep your real
 account close to the model.
@@ -45,8 +47,9 @@ have no spare cash — it is extra, never part of the plan.
 ## Messages you will receive
 
 ```text
-ACCION RICHBOT STOCKS: COMPRA ~50.00 EUR de VWCE (Vanguard FTSE
-All-World) en Revolut. Motivo: DCA semanal (precio 159.50 EUR)
+ACCION RICHBOT STOCKS: COMPRA ~600.00 EUR de fondo indexado
+mundial Vanguard (90% Global Stock + 10% EM) en MyInvestor.
+Motivo: DCA mensual (cierre 159.50, ahora 159.80 EUR)
 
 ACCION RICHBOT STOCKS: COMPRA ~190.00 EUR de NVIDIA (NVDA) en
 Revolut. Motivo: señal donchian de entrada (precio 208.19 USD)
@@ -62,9 +65,11 @@ close the whole position in that instrument. Recommendations below
 ## Current portfolio (June 2026 research)
 
 ```text
-core-etf:   VWCE (FTSE All-World UCITS, EUR) 60% — monthly base
-            buy + optional extra-money recharges on dips. Never
-            sells.
+core-etf:   world index funds at MyInvestor (90% Vanguard Global
+            Stock + 10% Vanguard EM, signal proxy VWCE.DE) 60% —
+            monthly base contribution + optional extra-money
+            recharges on dips. Never sells; de-risking later is a
+            tax-free traspaso between funds.
 risky-cost: COST 20% — donchian breakout, adaptive params.
             15y walk-forward: +223% OOS, Sharpe 0.81, maxDD 16.5%.
 risky-tsla: TSLA 20% — sma-cross, adaptive params.

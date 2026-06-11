@@ -100,22 +100,27 @@
             :currency "EUR"
             :poll-ms 600000
             :slots [{:name :core-etf
-                     :label "VWCE (Vanguard FTSE All-World)"
+                     :label "fondo indexado mundial Vanguard (90% Global Stock + 10% EM)"
+                     ;; VWCE tracks the same all-world exposure;
+                     ;; its price series is the signal proxy for
+                     ;; the fund combo.
                      :yahoo "VWCE.DE"
+                     :venue "MyInvestor"
                      :currency "EUR"
                      :weight 0.60
-                     ;; Monthly 600 EUR buy (21 trading days; 1 of
-                     ;; Revolut's 5 free monthly trades). With
-                     ;; recurring contributions, holding back a dip
-                     ;; reserve LOST 7-16% over 20y of SPY, so the
-                     ;; full base is invested every month. Dips
-                     ;; instead trigger :recharge - optional EXTRA
-                     ;; deposits (20y SPY: buying 5/10/15% below
-                     ;; the SMA200 averaged +15/+27/+36% one year
-                     ;; later), at most one per ~month.
+                     ;; Monthly base buy every ~21 trading days as
+                     ;; a fund contribution (free, no trade limit).
+                     ;; With recurring contributions, holding back
+                     ;; a dip reserve LOST 7-16% over 20y of SPY,
+                     ;; so the full base is invested every month.
+                     ;; Dips instead trigger :recharge - optional
+                     ;; EXTRA deposits (20y SPY: buying 5/10/15%
+                     ;; below the SMA200 averaged +15/+27/+36% one
+                     ;; year later), at most one per ~month.
+                     ;; the base buy is :contribution * :weight,
+                     ;; derived at runtime
                      :strategy {:id :dca
                                 :params {:every 21
-                                         :base-amount 600.0
                                          :trend 200
                                          :tiers [[0.05 1.5]
                                                  [0.15 2.5]

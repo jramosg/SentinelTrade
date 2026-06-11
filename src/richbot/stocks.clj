@@ -36,10 +36,11 @@
 
 (defn- advise!
   "Print, log and send one actionable recommendation by Telegram."
-  [side {:keys [label]} amount currency reason]
-  (let [msg (format "ACCION RICHBOT STOCKS: %s ~%.2f %s de %s en Revolut. Motivo: %s"
+  [side {:keys [label venue] :or {venue "Revolut"}} amount currency
+   reason]
+  (let [msg (format "ACCION RICHBOT STOCKS: %s ~%.2f %s de %s en %s. Motivo: %s"
                     (case side :buy "COMPRA" :sell "VENDE")
-                    (double amount) currency label reason)]
+                    (double amount) currency label venue reason)]
     (println (now) msg)
     (alert/send! msg)
     (spit advice-file
@@ -110,8 +111,14 @@
   the trend discount) and book it in the model portfolio. Dips
   additionally trigger optional extra-money recharges. Never
   sells; no stops — the budget is the exposure limit."
-  [{slot :name :keys [yahoo currency strategy] :as ctx} acct-ccy st]
+  [{slot :name :keys [yahoo currency strategy weight contribution]
+    :as ctx}
+   acct-ccy st]
   (let [params (merge dca/default-params (:params strategy))
+        params (cond-> params
+                 (and (nil? (:base-amount params))
+                      (some-> contribution pos?))
+                 (assoc :base-amount (* contribution weight)))
         closed (candles! yahoo (:trend params))
         {:keys [price discount mult base latest spend]}
         (dca/decide params closed st)
@@ -265,10 +272,17 @@
       :else
       (let [active (remove #(get-in st [:slots (:name %) :stopped?])
                            slots)
-            total (* contribution (reduce + (map :weight active)))
-            msg (str "NUEVO MES richbot stocks: ingresa "
-                     (format "%.0f" total)
-                     " EUR en Revolut. El modelo reparte: "
+            by-venue (->> active
+                          (group-by #(:venue % "Revolut"))
+                          (map (fn [[venue ss]]
+                                 (format "%.0f EUR en %s"
+                                         (* contribution
+                                            (reduce + (map :weight
+                                                           ss)))
+                                         venue)))
+                          (str/join " y "))
+            msg (str "NUEVO MES richbot stocks: ingresa " by-venue
+                     ". El modelo reparte: "
                      (str/join
                       ", "
                       (map #(format "%.0f a %s"
@@ -322,7 +336,8 @@
                "las recomendaciones solo saldran por consola"))
     (let [slots (mapv #(merge {:max-drawdown 0.45
                                :daily-loss 0.20
-                               :fraction 0.95}
+                               :fraction 0.95
+                               :contribution contribution}
                               %)
                       slots)
           initial (into {} (map #(initial-slot-state capital %)
@@ -337,7 +352,7 @@
                         (when contribution
                           (str " + " contribution " " currency
                                " al mes"))
-                        " - las ordenes las ejecutas TU en Revolut"))
+                        " - las ordenes las ejecutas TU"))
       (loop [st st errors 0]
         (let [r (try
                   {:st (reduce

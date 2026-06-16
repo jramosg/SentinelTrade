@@ -54,7 +54,13 @@
    "MSFT" {:thesis "cloud, enterprise software and AI platform compounder"
            :invalidation "Azure/AI demand slows or margins compress sharply"}
    "META" {:thesis "dominant ads platform with AI improving ad performance"
-           :invalidation "ads cycle breaks or AI capex overwhelms returns"}})
+           :invalidation "ads cycle breaks or AI capex overwhelms returns"}
+   "AVGO" {:thesis "AI custom silicon (Google TPUs, Apple chips) and data-centre networking; customer lock-in drives pricing power"
+           :invalidation "hyperscaler in-house silicon displaces merchant chips; VMware integration fails"}
+   "NVDA" {:thesis "GPU monopoly for AI training and inference; data-centre AI infrastructure backbone with software moat (CUDA)"
+           :invalidation "custom ASICs displace GPUs at scale; export controls tighten further"}
+   "UBER" {:thesis "global rides and delivery two-sided network; platform leverage converting to free cash flow at scale"
+           :invalidation "autonomous vehicles commoditise the network; regulatory pressure on gig model"}})
 
 (def ^:private default-universe
   [{:symbol "AAPL" :label "Apple" :tags #{:mega-tech :consumer-tech}
@@ -65,6 +71,8 @@
     :quality 8 :valuation 5}
    {:symbol "ASML" :label "ASML" :tags #{:semis :eu}
     :quality 8 :valuation 5}
+   {:symbol "AVGO" :label "Broadcom" :tags #{:semis :ai}
+    :quality 9 :valuation 6}
    {:symbol "COST" :label "Costco" :tags #{:consumer-defensive}
     :bonus 2.0 :quality 8 :valuation 3}
    {:symbol "CRM" :label "Salesforce" :tags #{:software :ai-risk}
@@ -95,12 +103,16 @@
     :quality 4 :valuation 4}
    {:symbol "NVO" :label "Novo Nordisk" :tags #{:healthcare :eu}
     :quality 7 :valuation 4}
+   {:symbol "NVDA" :label "Nvidia" :tags #{:semis :ai}
+    :quality 9 :valuation 6}
    {:symbol "SAP" :label "SAP" :tags #{:software :eu :ai-risk}
     :quality 7 :valuation 4}
    {:symbol "TSM" :label "TSMC" :tags #{:semis :ai}
     :quality 8 :valuation 6}
+   {:symbol "UBER" :label "Uber" :tags #{:transport :platform}
+    :quality 7 :valuation 5}
    {:symbol "UNH" :label "UnitedHealth" :tags #{:healthcare}
-    :quality 6 :valuation 5}
+    :quality 5 :valuation 5}
    {:symbol "V" :label "Visa" :tags #{:payments :financials} :bonus 4.0
     :quality 9 :valuation 6}
    {:symbol "VWCE.DE" :label "VWCE" :tags #{:world-etf}

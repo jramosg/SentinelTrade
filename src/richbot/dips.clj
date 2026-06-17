@@ -8,6 +8,7 @@
   (:require [clojure.set :as set]
             [clojure.edn :as edn]
             [clojure.string :as str]
+            [clojure.data.json :as json]
             [richbot.alert :as alert]
             [richbot.config :as config]
             [richbot.stocks-data :as sd])
@@ -158,6 +159,18 @@
       (not-empty (get config/env "STOCKS_FUNDAMENTALS_CSV"))
       (when (.exists (java.io.File. "fundamentals.csv"))
         "fundamentals.csv")))
+
+(defn- timesfm-signals-path [{:keys [timesfm-signals]}]
+  (or timesfm-signals
+      (not-empty (get config/env "TIMESFM_SIGNALS_JSON"))
+      "resources/timesfm_signals.json"))
+
+(defn- load-timesfm-signals [cfg]
+  (let [path (timesfm-signals-path cfg)]
+    (try
+      (when (.exists (java.io.File. path))
+        (json/read-str (slurp path)))
+      (catch Exception _ nil))))
 
 (defn- csv-rows [path]
   (when (and path (.exists (java.io.File. path)))
@@ -376,7 +389,7 @@
 (defn- score
   [{:keys [discount off-high ret-1y held? crowded? bonus
            quality valuation position-weight tag-weight pe
-           fcf-yield revenue-growth eps-revisions]}]
+           fcf-yield revenue-growth eps-revisions timesfm-return]}]
   (cond-> (+ (* 100.0 discount)
              (* 20.0 off-high)
              (* 1.5 (or quality 5.0))
@@ -392,7 +405,9 @@
     (some-> revenue-growth (< 0.0)) (- 5.0)
     (some-> eps-revisions (< 0.0)) (- 4.0)
     (< ret-1y -0.25) (- 30.0)
-    (< discount 0.05) (- 20.0)))
+    (< discount 0.05) (- 20.0)
+    (some-> timesfm-return (> 0.03)) (+ 2.5)
+    (some-> timesfm-return (< -0.03)) (- 2.5)))
 
 (defn- exit-rule
   [{:keys [price sma200 discount ret-1y]}]
@@ -432,7 +447,7 @@
 (defn- why
   [{:keys [discount off-high ret-1y held? crowded? tags
            position-weight tag-weight pe fcf-yield revenue-growth
-           eps-revisions]}]
+           eps-revisions timesfm-return]}]
   (str/join
    "; "
    (cond-> [(str (pct discount) " below SMA200")
@@ -455,7 +470,9 @@
      revenue-growth (conj (format "rev growth %.1f%%"
                                   (* 100.0 revenue-growth)))
      eps-revisions (conj (format "EPS revisions %.1f%%"
-                                 (* 100.0 eps-revisions))))))
+                                 (* 100.0 eps-revisions)))
+     timesfm-return (conj (format "TimesFM %+.1f%% 21d"
+                                  (* 100.0 timesfm-return))))))
 
 (defn- classify
   [{:keys [discount ret-1y quality valuation held? crowded? pe
@@ -621,6 +638,11 @@
                    more)
             (recur remaining selected more)))))))
 
+(defn- merge-timesfm [signals row]
+  (if-let [sig (get signals (:symbol row))]
+    (assoc row :timesfm-return (get sig "return"))
+    row))
+
 (defn- annotate-owned [cfg]
   (let [universe (watchlist cfg)]
     (assoc cfg
@@ -751,11 +773,13 @@
                 (expire-pending! today)
                 review-active-trades!
                 pending-execution-alert!)
+        signals (load-timesfm-signals cfg)
         watchlist (watchlist cfg)
         rows (keep (fn [{:keys [symbol] :as meta}]
                      (try
                        (some-> (stats! symbol)
-                               (merge meta))
+                               (merge meta)
+                               (->> (merge-timesfm signals)))
                           (catch Exception e
                             (println "DIPS SKIP" symbol "-"
                                      (ex-message e))
@@ -899,11 +923,14 @@
   portfolio-aware score. Does not send Telegram or update state."
   [cfg]
   (let [cfg (annotate-owned cfg)
+        signals (load-timesfm-signals cfg)
         watchlist (watchlist cfg)
         rows (keep (fn [{:keys [symbol] :as meta}]
                      (try
                        (when-let [row (stats! symbol)]
-                         (recommendation cfg (merge row meta)))
+                         (->> (merge row meta)
+                              (merge-timesfm signals)
+                              (recommendation cfg)))
                        (catch Exception e
                          (println "DIPS SKIP" symbol "-"
                                   (ex-message e))

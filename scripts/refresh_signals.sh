@@ -6,8 +6,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# Source .env safely: `set -a` exports everything assigned while it is
+# on, so values with spaces, quotes or `=` survive intact (the old
+# `export $(... | xargs)` mangled them).
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  . ./.env
+  set +a
 fi
 
 VPS_USER="${VPS_USER:-root}"
@@ -25,13 +30,15 @@ if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
 import json
 with open('resources/timesfm_signals.json') as f:
     d = json.load(f)
-modes = set(v.get('mode','?') for v in d.values())
-print(list(modes)[0] if len(modes)==1 else ','.join(modes))
+sigs = {k: v for k, v in d.items() if not k.startswith('_')}
+modes = set(v.get('mode','?') for v in sigs.values())
+print(list(modes)[0] if len(modes)==1 else ','.join(sorted(modes)))
 ")
   COUNT=$(python3 -c "
 import json
 with open('resources/timesfm_signals.json') as f:
-    print(len(json.load(f)))
+    d = json.load(f)
+print(sum(1 for k in d if not k.startswith('_')))
 ")
   curl -s -X POST \
     "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

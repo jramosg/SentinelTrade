@@ -1,0 +1,40 @@
+name: Deploy to VPS
+
+# Auto-deploy on every push to master that touches code or scripts.
+# The VPS pulls itself and restarts only what changed (see
+# scripts/vps_deploy.sh). TimesFM signal refresh is NOT done here —
+# it needs the model + RAM and stays a local job (scripts/refresh_signals.sh).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'deps.edn'
+      - 'scripts/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          test -n "$SSH_KEY" || { echo "missing secret VPS_SSH_KEY"; exit 1; }
+          test -n "$VPS_HOST" || { echo "missing secret VPS_HOST"; exit 1; }
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            "${VPS_USER:-root}@${VPS_HOST}" \
+            'cd ~/richbot && bash scripts/vps_deploy.sh'

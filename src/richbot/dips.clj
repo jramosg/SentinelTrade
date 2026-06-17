@@ -165,12 +165,44 @@
       (not-empty (get config/env "TIMESFM_SIGNALS_JSON"))
       "resources/timesfm_signals.json"))
 
-(defn- load-timesfm-signals [cfg]
-  (let [path (timesfm-signals-path cfg)]
+(def ^:private signals-max-age-days
+  "A 21-day forecast generated more than this many days ago is stale
+  and ignored — better no tilt than a misleading one. The refresh
+  script must rsync a fresh JSON within this window."
+  5)
+
+(defn- instant->date [^java.time.Instant inst]
+  (-> inst (.atZone (java.time.ZoneId/systemDefault)) .toLocalDate))
+
+(defn- signals-age-days
+  "Age in days from the embedded `_generated_at` (robust when the file
+  is rsynced and mtime is not preserved), falling back to file mtime."
+  [signals ^java.io.File f today]
+  (let [today* (LocalDate/parse today)
+        from-meta (when-let [ts (get signals "_generated_at")]
+                    (try (-> (java.time.Instant/parse ts) instant->date)
+                         (catch Exception _ nil)))
+        date (or from-meta
+                 (instant->date (java.time.Instant/ofEpochMilli
+                                 (.lastModified f))))]
+    (.between ChronoUnit/DAYS date today*)))
+
+(defn- load-timesfm-signals
+  "Load forecast signals, but only when fresh — a stale or unreadable
+  file yields nil so the scorer simply runs without the tilt."
+  [cfg today]
+  (let [file (java.io.File. (timesfm-signals-path cfg))]
     (try
-      (when (.exists (java.io.File. path))
-        (json/read-str (slurp path)))
-      (catch Exception _ nil))))
+      (when (.exists file)
+        (let [signals (json/read-str (slurp file))
+              age (signals-age-days signals file today)]
+          (if (> age signals-max-age-days)
+            (do (println "DIPS signals stale -" age "days old; ignoring")
+                nil)
+            signals)))
+      (catch Exception e
+        (println "DIPS signals unreadable -" (ex-message e))
+        nil))))
 
 (defn- csv-rows [path]
   (when (and path (.exists (java.io.File. path)))
@@ -386,15 +418,37 @@
                            cooldown-days)))]
     (assoc row :tier tier)))
 
+(defn- clamp [lo hi x] (max lo (min hi x)))
+
+(defn- timesfm-adjustment
+  "Score tilt from the TimesFM 21-day forecast. The point forecast
+  scales the tilt continuously (so small forecasts still count, not a
+  ±3% cliff), clamped to ±5 and damped when the quantile band is wide
+  (an uncertain forecast carries less weight). A fat negative downside
+  quantile adds a falling-knife penalty even when the median is benign
+  — the classic value-trap shape."
+  [{:keys [timesfm-return timesfm-q-low timesfm-q-high]}]
+  (if (nil? timesfm-return)
+    0.0
+    (let [width (when (and timesfm-q-low timesfm-q-high)
+                  (- timesfm-q-high timesfm-q-low))
+          conf (if (and width (pos? width))
+                 (clamp 0.3 1.0 (/ 0.20 width))
+                 1.0)
+          tilt (* conf (clamp -5.0 5.0 (* 120.0 timesfm-return)))
+          knife (if (and timesfm-q-low (< timesfm-q-low -0.15)) -4.0 0.0)]
+      (+ tilt knife))))
+
 (defn- score
   [{:keys [discount off-high ret-1y held? crowded? bonus
            quality valuation position-weight tag-weight pe
-           fcf-yield revenue-growth eps-revisions timesfm-return]}]
+           fcf-yield revenue-growth eps-revisions] :as row}]
   (cond-> (+ (* 100.0 discount)
              (* 20.0 off-high)
              (* 1.5 (or quality 5.0))
              (or valuation 5.0)
-             (or bonus 0.0))
+             (or bonus 0.0)
+             (timesfm-adjustment row))
     (neg? ret-1y) (+ (* 15.0 ret-1y))
     held? (- 5.0)
     crowded? (- 4.0)
@@ -405,9 +459,7 @@
     (some-> revenue-growth (< 0.0)) (- 5.0)
     (some-> eps-revisions (< 0.0)) (- 4.0)
     (< ret-1y -0.25) (- 30.0)
-    (< discount 0.05) (- 20.0)
-    (some-> timesfm-return (> 0.03)) (+ 2.5)
-    (some-> timesfm-return (< -0.03)) (- 2.5)))
+    (< discount 0.05) (- 20.0)))
 
 (defn- exit-rule
   [{:keys [price sma200 discount ret-1y]}]
@@ -447,7 +499,7 @@
 (defn- why
   [{:keys [discount off-high ret-1y held? crowded? tags
            position-weight tag-weight pe fcf-yield revenue-growth
-           eps-revisions timesfm-return]}]
+           eps-revisions timesfm-return timesfm-q-low timesfm-q-high]}]
   (str/join
    "; "
    (cond-> [(str (pct discount) " below SMA200")
@@ -471,8 +523,13 @@
                                   (* 100.0 revenue-growth)))
      eps-revisions (conj (format "EPS revisions %.1f%%"
                                  (* 100.0 eps-revisions)))
-     timesfm-return (conj (format "TimesFM %+.1f%% 21d"
-                                  (* 100.0 timesfm-return))))))
+     timesfm-return (conj (if (and timesfm-q-low timesfm-q-high)
+                            (format "TimesFM %+.1f%% 21d [%+.0f..%+.0f%%]"
+                                    (* 100.0 timesfm-return)
+                                    (* 100.0 timesfm-q-low)
+                                    (* 100.0 timesfm-q-high))
+                            (format "TimesFM %+.1f%% 21d"
+                                    (* 100.0 timesfm-return)))))))
 
 (defn- classify
   [{:keys [discount ret-1y quality valuation held? crowded? pe
@@ -640,7 +697,9 @@
 
 (defn- merge-timesfm [signals row]
   (if-let [sig (get signals (:symbol row))]
-    (assoc row :timesfm-return (get sig "return"))
+    (assoc row :timesfm-return (get sig "return")
+           :timesfm-q-low (get sig "q_low")
+           :timesfm-q-high (get sig "q_high"))
     row))
 
 (defn- annotate-owned [cfg]
@@ -773,7 +832,7 @@
                 (expire-pending! today)
                 review-active-trades!
                 pending-execution-alert!)
-        signals (load-timesfm-signals cfg)
+        signals (load-timesfm-signals cfg today)
         watchlist (watchlist cfg)
         rows (keep (fn [{:keys [symbol] :as meta}]
                      (try
@@ -923,7 +982,7 @@
   portfolio-aware score. Does not send Telegram or update state."
   [cfg]
   (let [cfg (annotate-owned cfg)
-        signals (load-timesfm-signals cfg)
+        signals (load-timesfm-signals cfg (today))
         watchlist (watchlist cfg)
         rows (keep (fn [{:keys [symbol] :as meta}]
                      (try

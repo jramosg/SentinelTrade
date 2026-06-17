@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -139,7 +140,15 @@ def main():
         model = None
         use_timesfm = False
 
-    signals = {}
+    # `_`-prefixed keys are metadata, not tickers — the Clojure
+    # consumer looks up real symbols only, so these never collide.
+    signals = {
+        "_generated_at": datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "_horizon": args.horizon,
+    }
     for symbol, yf_ticker in SYMBOL_MAP.items():
         try:
             close = download_close(yf_ticker)
@@ -154,11 +163,12 @@ def main():
         except Exception as e:
             print(f"  {symbol:10s} SKIP: {e}", flush=True)
 
+    n_signals = sum(1 for k in signals if not k.startswith("_"))
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(signals, f, indent=2)
-    print(f"\nWrote {len(signals)} signals → {out_path}")
+    print(f"\nWrote {n_signals} signals → {out_path}")
     vps_user = os.environ.get("VPS_USER", "root")
     vps_host = os.environ.get("VPS_HOST", "<VPS_HOST>")
     print(

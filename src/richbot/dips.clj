@@ -144,6 +144,8 @@
   (case symbol
     "EXI2" "EXI2.DE"
     "VWCE" "VWCE.DE"
+    ;; Revolut reports LVMH by its German WKN
+    "853292" "MC.PA"
     symbol))
 
 (defn- amount-value [s]

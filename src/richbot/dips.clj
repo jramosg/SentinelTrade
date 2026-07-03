@@ -879,15 +879,19 @@
                                    (html rejected)))))]
         (println msg)
         (alert/send-html! html-msg)))
-    (reduce (fn [st {:keys [symbol tier] :as row}]
-              (-> st
-                  (assoc-in [:alerts symbol] {:tier tier :day today})
-                  (assoc-in [:trades symbol :trade] (trade-plan row))
-                  (assoc-in [:trades symbol :opened] today)
-                  (assoc-in [:budget :month] (month-key today))
-                  (update-in [:budget :spent] (fnil + 0.0)
-                             (:allocated row))))
-            st allocated)))
+    (let [st (cond-> st
+               ;; month rollover: last month's spend must not carry
+               ;; into the new month's budget
+               (not= (month-key today) (get-in st [:budget :month]))
+               (assoc :budget {:month (month-key today) :spent 0.0}))]
+      (reduce (fn [st {:keys [symbol tier] :as row}]
+                (-> st
+                    (assoc-in [:alerts symbol] {:tier tier :day today})
+                    (assoc-in [:trades symbol :trade] (trade-plan row))
+                    (assoc-in [:trades symbol :opened] today)
+                    (update-in [:budget :spent] (fnil + 0.0)
+                               (:allocated row))))
+              st allocated))))
 
 (defn run-scan!
   "Load persisted dip state, scan once, send Telegram if needed,

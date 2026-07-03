@@ -4,6 +4,7 @@
 # personal config: capital, contribution, pay day, owned holdings
 config.local.edn
 PLAN-INVERSION.md
+plan-*.txt
 
 # runtime state (per machine; deleting can re-arm kill switches)
 .richbot-*.edn

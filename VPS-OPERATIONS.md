@@ -65,7 +65,10 @@ rsync -av fundamentals.csv root@<VPS-IP>:~/richbot/fundamentals.csv
 0 18 * * 0 cd /root/richbot && /usr/local/bin/clojure -M:report >> report.log 2>&1
 
 # survive VPS reboots
-@reboot cd /root/richbot && nohup /usr/local/bin/clojure -M:portfolio-live yes >> portfolio-live.log 2>&1 &
+# portfolio-live (crypto) intentionally has NO @reboot line since
+# 2026-07-01 - stopped after repeated Binance 401s, see watchdog.sh.
+# Add it back only once Binance API access is confirmed working:
+#   @reboot cd /root/richbot && nohup /usr/local/bin/clojure -M:portfolio-live yes >> portfolio-live.log 2>&1 &
 @reboot cd /root/richbot && nohup /usr/local/bin/clojure -M:stocks-advisor >> stocks-advisor.log 2>&1 &
 ```
 

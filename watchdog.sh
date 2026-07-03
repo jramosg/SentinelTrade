@@ -30,5 +30,9 @@ ensure() {
   fi
 }
 
-ensure "richbot.core portfolio-live" portfolio-live portfolio-live.log yes
+# portfolio-live (crypto, real money) is intentionally NOT auto-ensured:
+# stopped 2026-07-01 after repeated Binance 401s ("Invalid API-key, IP,
+# or permissions" - account/API access issue, not a transient outage).
+# Re-enable only after confirming Binance access works again:
+#   ensure "richbot.core portfolio-live" portfolio-live portfolio-live.log yes
 ensure "richbot.core stocks-advisor" stocks-advisor stocks-advisor.log

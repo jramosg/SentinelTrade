@@ -251,6 +251,7 @@
       "stocks-dips" (dips/report! (:dips config))
       "stocks-dips-scan" (dips/run-scan! (:dips config))
       "stocks-dips-status" (dips/status! (:dips config))
+      "stocks-tax" (dips/tax-report! (:dips config))
       "stocks-dips-backtest" (dips/backtest! {})
       "stocks-dips-fundamentals-template"
       (dips/fundamentals-template! (:dips config))
@@ -262,7 +263,7 @@
                "or portfolio|portfolio-live"
                "or stocks|stocks-advisor|stocks-research|stocks-dca"
                "|stocks-dips|stocks-dips-scan"
-               "|stocks-dips-status|stocks-dips-backtest"
+               "|stocks-dips-status|stocks-dips-backtest|stocks-tax"
                "|stocks-dips-fundamentals-template"))))
 
 (comment

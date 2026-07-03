@@ -20,6 +20,7 @@
                                    "stocks-dips-status"]}
   :stocks-dips-backtest {:main-opts ["-m" "richbot.core"
                                      "stocks-dips-backtest"]}
+  :stocks-tax {:main-opts ["-m" "richbot.core" "stocks-tax"]}
   :stocks-dips-fundamentals-template
   {:main-opts ["-m" "richbot.core"
                "stocks-dips-fundamentals-template"]}

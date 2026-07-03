@@ -61,7 +61,9 @@
    "NVDA" {:thesis "GPU monopoly for AI training and inference; data-centre AI infrastructure backbone with software moat (CUDA)"
            :invalidation "custom ASICs displace GPUs at scale; export controls tighten further"}
    "UBER" {:thesis "global rides and delivery two-sided network; platform leverage converting to free cash flow at scale"
-           :invalidation "autonomous vehicles commoditise the network; regulatory pressure on gig model"}})
+           :invalidation "autonomous vehicles commoditise the network; regulatory pressure on gig model"}
+   "BKNG" {:thesis "travel demand aggregator: 87% gross margin, ~15x FCF growing 14%/yr, no AI-capex arms race, no China exposure"
+           :invalidation "direct hotel booking or AI agents disintermediate OTAs; take-rate compression"}})
 
 (def ^:private default-universe
   [{:symbol "AAPL" :label "Apple" :tags #{:mega-tech :consumer-tech}
@@ -74,6 +76,8 @@
     :quality 8 :valuation 5}
    {:symbol "AVGO" :label "Broadcom" :tags #{:semis :ai}
     :quality 9 :valuation 6}
+   {:symbol "BKNG" :label "Booking" :tags #{:travel :platform}
+    :quality 8 :valuation 6}
    {:symbol "COST" :label "Costco" :tags #{:consumer-defensive}
     :bonus 2.0 :quality 8 :valuation 3}
    {:symbol "CRM" :label "Salesforce" :tags #{:software :ai-risk}
@@ -190,21 +194,24 @@
     (.between ChronoUnit/DAYS date today*)))
 
 (defn- load-timesfm-signals
-  "Load forecast signals, but only when fresh — a stale or unreadable
-  file yields nil so the scorer simply runs without the tilt."
+  "Load forecast signals when fresh. Returns {:signals m :age n} —
+  :signals is nil when the file is missing, stale or unreadable, so
+  the scorer simply runs without the tilt; :age lets the caller nag
+  about staleness."
   [cfg today]
   (let [file (java.io.File. (timesfm-signals-path cfg))]
     (try
-      (when (.exists file)
+      (if-not (.exists file)
+        {:signals nil :age nil}
         (let [signals (json/read-str (slurp file))
               age (signals-age-days signals file today)]
           (if (> age signals-max-age-days)
             (do (println "DIPS signals stale -" age "days old; ignoring")
-                nil)
-            signals)))
+                {:signals nil :age age})
+            {:signals signals :age age})))
       (catch Exception e
         (println "DIPS signals unreadable -" (ex-message e))
-        nil))))
+        {:signals nil :age nil}))))
 
 (defn- csv-rows [path]
   (when (and path (.exists (java.io.File. path)))
@@ -501,7 +508,8 @@
 (defn- why
   [{:keys [discount off-high ret-1y held? crowded? tags
            position-weight tag-weight pe fcf-yield revenue-growth
-           eps-revisions timesfm-return timesfm-q-low timesfm-q-high]}]
+           eps-revisions timesfm-return timesfm-q-low timesfm-q-high
+           earnings-date]}]
   (str/join
    "; "
    (cond-> [(str (pct discount) " below SMA200")
@@ -531,7 +539,8 @@
                                     (* 100.0 timesfm-q-low)
                                     (* 100.0 timesfm-q-high))
                             (format "TimesFM %+.1f%% 21d"
-                                    (* 100.0 timesfm-return)))))))
+                                    (* 100.0 timesfm-return))))
+     earnings-date (conj (str "earnings " earnings-date)))))
 
 (defn- classify
   [{:keys [discount ret-1y quality valuation held? crowded? pe
@@ -699,9 +708,11 @@
 
 (defn- merge-timesfm [signals row]
   (if-let [sig (get signals (:symbol row))]
-    (assoc row :timesfm-return (get sig "return")
-           :timesfm-q-low (get sig "q_low")
-           :timesfm-q-high (get sig "q_high"))
+    (cond-> (assoc row
+                   :timesfm-return (get sig "return")
+                   :timesfm-q-low (get sig "q_low")
+                   :timesfm-q-high (get sig "q_high"))
+      (get sig "earnings") (assoc :earnings-date (get sig "earnings")))
     row))
 
 (defn- annotate-owned [cfg]
@@ -823,6 +834,32 @@
         (alert/send! msg))))
   st)
 
+(defn- nag-due?
+  "True when the :nags entry for k is at least `days` old, so the
+  same warning is not repeated every daily scan."
+  [st k today days]
+  (>= (days-since (get-in st [:nags k]) today) days))
+
+(defn- nag! [st k today msg]
+  (println msg)
+  (alert/send! msg)
+  (assoc-in st [:nags k] today))
+
+(def ^:private max-position-weight 0.20)
+(def ^:private max-tag-weight 0.50)
+
+(defn- concentration-offenders [{:keys [weights tag-weights]}]
+  (concat
+   (for [[symbol w] weights
+         :when (and (> w max-position-weight)
+                    (not= symbol "VWCE.DE"))]
+     (format "%s %.0f%% de la cartera (max %.0f%%)"
+             symbol (* 100.0 w) (* 100.0 max-position-weight)))
+   (for [[tag w] tag-weights
+         :when (and (> w max-tag-weight) (not= tag :world-etf))]
+     (format "%s %.0f%% de exposicion (max %.0f%%)"
+             (name tag) (* 100.0 w) (* 100.0 max-tag-weight)))))
+
 (defn scan!
   "Scan the watchlist, send one digest with the symbols at a new or
   re-eligible discount tier, and return the updated per-symbol
@@ -834,7 +871,7 @@
                 (expire-pending! today)
                 review-active-trades!
                 pending-execution-alert!)
-        signals (load-timesfm-signals cfg today)
+        {:keys [signals age]} (load-timesfm-signals cfg today)
         watchlist (watchlist cfg)
         rows (keep (fn [{:keys [symbol] :as meta}]
                      (try
@@ -879,11 +916,42 @@
                                    (html rejected)))))]
         (println msg)
         (alert/send-html! html-msg)))
-    (let [st (cond-> st
+    (let [offenders (concentration-offenders (:portfolio cfg))
+          st (cond-> st
                ;; month rollover: last month's spend must not carry
                ;; into the new month's budget
                (not= (month-key today) (get-in st [:budget :month]))
-               (assoc :budget {:month (month-key today) :spent 0.0}))]
+               (assoc :budget {:month (month-key today) :spent 0.0})
+
+               ;; forecasts too old to trust: remind to refresh, the
+               ;; scan keeps running without the tilt meanwhile
+               (and age (> age signals-max-age-days)
+                    (nag-due? st :signals today 3))
+               (nag! :signals today
+                     (format (str "RICHBOT DIPS - senales TimesFM "
+                                  "caducadas (%d dias). Ejecuta "
+                                  "scripts/refresh_signals.sh")
+                             age))
+
+               ;; ideas fired but nothing allocated: say WHY the bot
+               ;; is silent instead of looking broken
+               (and (seq buy-hits) (empty? allocated)
+                    (nag-due? st :budget today 7))
+               (nag! :budget today
+                     (str "RICHBOT DIPS - presupuesto del mes agotado;"
+                          " ideas en espera hasta el mes que viene: "
+                          (str/join ", " (map :symbol
+                                              (take 3 buy-hits)))))
+
+               ;; position or theme too big: sizing risk the daily
+               ;; digest cannot see
+               (and (seq offenders)
+                    (nag-due? st :concentration today 7))
+               (nag! :concentration today
+                     (str "RICHBOT DIPS - CONCENTRACION\n"
+                          (str/join "\n" offenders)
+                          "\nConsidera no ampliar / recortar hacia "
+                          "el indice.")))]
       (reduce (fn [st {:keys [symbol tier] :as row}]
                 (-> st
                     (assoc-in [:alerts symbol] {:tier tier :day today})
@@ -973,6 +1041,104 @@
                       (pct (/ (count wins) (count trades)))
                       "n/a"))))))
 
+(defn- trade-rows [cfg]
+  (->> (csv-rows (portfolio-csv-path cfg))
+       (keep (fn [row]
+               (let [ticker (:Ticker row)
+                     type (:Type row)]
+                 (when (and (seq ticker)
+                            (or (str/starts-with? type "BUY")
+                                (str/starts-with? type "SELL")))
+                   {:date (subs (:Date row) 0 10)
+                    :symbol (normalize-symbol ticker)
+                    :side (if (str/starts-with? type "BUY")
+                            :buy :sell)
+                    :qty (or (some-> (:Quantity row) not-empty
+                                     parse-double)
+                             0.0)
+                    :amount (or (amount-value
+                                 ((keyword "Total Amount") row))
+                                0.0)
+                    :currency (:Currency row)}))))
+       (sort-by :date)))
+
+(defn- fifo-consume
+  "Consume qty from FIFO lots. Returns [cost-basis remaining-lots]."
+  [lots qty]
+  (loop [lots lots qty qty cost 0.0]
+    (if (or (<= qty 1.0E-9) (empty? lots))
+      [cost (vec lots)]
+      (let [{lqty :qty lcost :cost} (first lots)]
+        (if (<= lqty (+ qty 1.0E-9))
+          (recur (rest lots) (- qty lqty) (+ cost lcost))
+          (let [frac (/ qty lqty)]
+            [(+ cost (* frac lcost))
+             (into [{:qty (- lqty qty)
+                     :cost (* lcost (- 1.0 frac))}]
+                   (rest lots))]))))))
+
+(defn- fifo-ledger
+  "Replay all trades per symbol. Returns
+  {sym {:lots [...] :realized [{:date :gain :currency}]}}."
+  [trades]
+  (reduce
+   (fn [ledger {:keys [symbol side qty amount currency date]}]
+     (if (= :buy side)
+       (update-in ledger [symbol :lots] (fnil conj [])
+                  {:qty qty :cost amount})
+       (let [[basis lots] (fifo-consume
+                           (get-in ledger [symbol :lots] []) qty)]
+         (-> ledger
+             (assoc-in [symbol :lots] lots)
+             (update-in [symbol :realized] (fnil conj [])
+                        {:date date
+                         :gain (- amount basis)
+                         :currency currency})))))
+   {} trades))
+
+(defn tax-report!
+  "FIFO capital-gains report from the broker CSV: realized gains for
+  the current year plus unrealized P/L per open position, flagging
+  loss-harvest candidates (remember Spain's 2-month repurchase rule)."
+  [cfg]
+  (let [year (subs (today) 0 4)
+        ledger (fifo-ledger (trade-rows cfg))
+        realized (for [[symbol {:keys [realized]}] ledger
+                       {:keys [date gain currency]} realized
+                       :when (str/starts-with? date year)]
+                   {:symbol symbol :date date :gain gain
+                    :currency currency})]
+    (println (str "REALIZED " year " (FIFO, native currency, "
+                  "dividends excluded)"))
+    (doseq [{:keys [symbol date gain currency]} realized]
+      (println (format "  %s %s %+.2f %s" date symbol gain currency)))
+    (doseq [[currency rows] (group-by :currency realized)]
+      (println (format "  TOTAL %+.2f %s"
+                       (reduce + 0.0 (map :gain rows)) currency)))
+    (println "\nOPEN POSITIONS (unrealized, FIFO cost)")
+    (let [open
+          (for [[symbol {:keys [lots]}] (sort-by key ledger)
+                :let [qty (reduce + 0.0 (map :qty lots))
+                      cost (reduce + 0.0 (map :cost lots))]
+                :when (> qty 1.0E-6)
+                :let [price (try (sd/last-price! symbol)
+                                 (catch Exception _ nil))
+                      value (some-> price (* qty))
+                      pnl (some-> value (- cost))]]
+            {:symbol symbol :qty qty :cost cost :pnl pnl})]
+      (doseq [{:keys [symbol qty cost pnl]} open]
+        (println (format "  %-8s qty %10.4f cost %9.2f unrealized %s"
+                         symbol qty cost
+                         (if pnl (format "%+9.2f" pnl) "n/a"))))
+      (when-let [losers (seq (filter #(some-> (:pnl %) neg?) open))]
+        (println (str "\nHARVEST CANDIDATES (sell to offset gains; "
+                      "no repurchase within 2 months or the loss "
+                      "is deferred)"))
+        (doseq [{:keys [symbol pnl]} losers]
+          (println (format "  %s %+.2f" symbol pnl)))))
+    (println (str "\nNote: per-currency figures; convert to EUR at "
+                  "each trade's FX for the actual declaration."))))
+
 (defn fundamentals-template!
   "Print a CSV template for optional manual/live fundamentals."
   [_cfg]
@@ -988,7 +1154,7 @@
   portfolio-aware score. Does not send Telegram or update state."
   [cfg]
   (let [cfg (annotate-owned cfg)
-        signals (load-timesfm-signals cfg (today))
+        {:keys [signals]} (load-timesfm-signals cfg (today))
         watchlist (watchlist cfg)
         rows (keep (fn [{:keys [symbol] :as meta}]
                      (try

@@ -27,6 +27,7 @@ SYMBOL_MAP = {
     "AMZN":    "AMZN",
     "ASML":    "ASML",
     "AVGO":    "AVGO",
+    "BKNG":    "BKNG",
     "COST":    "COST",
     "CRM":     "CRM",
     "GOOG":    "GOOG",
@@ -50,6 +51,16 @@ SYMBOL_MAP = {
     "V":       "V",
     "VWCE.DE": "VWCE.DE",
 }
+
+
+def next_earnings(yf_ticker: str) -> str | None:
+    """Next earnings date as ISO string, or None if unavailable."""
+    try:
+        cal = yf.Ticker(yf_ticker).calendar
+        dates = cal.get("Earnings Date") if isinstance(cal, dict) else None
+        return str(dates[0]) if dates else None
+    except Exception:
+        return None
 
 
 def download_close(yf_ticker: str, period: str = "5y") -> np.ndarray:
@@ -156,6 +167,9 @@ def main():
                 sig = timesfm_forecast(model, close, args.horizon)
             else:
                 sig = ewm_forecast(close, args.horizon)
+            earnings = next_earnings(yf_ticker)
+            if earnings:
+                sig["earnings"] = earnings
             signals[symbol] = sig
             mode = sig["mode"]
             ret = sig["return"]

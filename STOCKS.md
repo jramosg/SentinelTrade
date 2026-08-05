@@ -109,7 +109,7 @@ Key evidence:
 ## Dip scanner (extra money)
 
 A daily cron job (`clojure -M:stocks-dips-scan`, see
-`VPS-OPERATIONS.md`) scans a ~25-name quality watchlist for prices
+`VPS-OPERATIONS.md`) scans a ~30-name quality watchlist for prices
 at least 5% below their 200-day SMA and Telegrams the best uses of
 the next EXTRA money. It never touches the monthly plan.
 
@@ -126,9 +126,12 @@ Each suggested buy is stored as a pending trade. The scanner
 reconciles against the Revolut CSV: when a matching BUY appears
 there, the trade is marked executed and the scanner starts watching
 its review levels (back at the SMA200, +15/20% from entry, or -10%
-risk check) and alerts when one triggers. Until then it sends
-pending-execution reminders. `clojure -M:stocks-dips-status` prints
-the current trade list.
+risk check) and alerts when one triggers. Every scan re-ranks the full
+universe. A pending idea is cancelled when it no longer qualifies, or
+replaced when a fresh candidate scores at least 10 points higher and
+needs its reserved budget. Each pending idea gets at most one reminder,
+after three days, and expires after seven days if it is not executed.
+`clojure -M:stocks-dips-status` prints the current trade list.
 
 Optional: a `fundamentals.csv` (template via
 `clojure -M:stocks-dips-fundamentals-template`) overrides

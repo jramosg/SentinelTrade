@@ -32,6 +32,17 @@
   block new ones."
   7)
 
+(def ^:private pending-reminder-after-days
+  "Pending ideas are reminders, not instructions. Send one reminder after
+  this many days, then stay silent until execution or expiry."
+  3)
+
+(def ^:private replacement-score-margin
+  "A fresh candidate must beat a pending idea by this much before the
+  scanner releases its reserved budget. The margin prevents churn from
+  insignificant daily score changes."
+  10.0)
+
 (def ^:private max-new-idea 300.0)
 (def ^:private max-recharge 150.0)
 (def ^:private max-crowded 150.0)
@@ -56,14 +67,34 @@
            :invalidation "Azure/AI demand slows or margins compress sharply"}
    "META" {:thesis "dominant ads platform with AI improving ad performance"
            :invalidation "ads cycle breaks or AI capex overwhelms returns"}
-   "AVGO" {:thesis "AI custom silicon (Google TPUs, Apple chips) and data-centre networking; customer lock-in drives pricing power"
-           :invalidation "hyperscaler in-house silicon displaces merchant chips; VMware integration fails"}
-   "NVDA" {:thesis "GPU monopoly for AI training and inference; data-centre AI infrastructure backbone with software moat (CUDA)"
-           :invalidation "custom ASICs displace GPUs at scale; export controls tighten further"}
-   "UBER" {:thesis "global rides and delivery two-sided network; platform leverage converting to free cash flow at scale"
-           :invalidation "autonomous vehicles commoditise the network; regulatory pressure on gig model"}
-   "BKNG" {:thesis "travel demand aggregator: 87% gross margin, ~15x FCF growing 14%/yr, no AI-capex arms race, no China exposure"
-           :invalidation "direct hotel booking or AI agents disintermediate OTAs; take-rate compression"}})
+   "SPGI" {:thesis (str "ratings, indices and data infrastructure with "
+                         "switching costs")
+           :invalidation (str "AI commoditizes data or debt issuance "
+                              "weakens structurally")}
+   "LIN" {:thesis (str "industrial-gases contracts, pricing power and "
+                        "disciplined capital allocation")
+          :invalidation (str "returns on project backlog fall or margins "
+                             "deteriorate")}
+   "AVGO" {:thesis (str "AI custom silicon (Google TPUs, Apple chips) and "
+                         "data-centre networking; customer lock-in drives "
+                         "pricing power")
+           :invalidation (str "hyperscaler in-house silicon displaces "
+                              "merchant chips; VMware integration fails")}
+   "NVDA" {:thesis (str "GPU monopoly for AI training and inference; "
+                         "data-centre AI infrastructure backbone with "
+                         "software moat (CUDA)")
+           :invalidation (str "custom ASICs displace GPUs at scale; export "
+                              "controls tighten further")}
+   "UBER" {:thesis (str "global rides and delivery two-sided network; "
+                         "platform leverage converting to free cash flow "
+                         "at scale")
+           :invalidation (str "autonomous vehicles commoditise the network; "
+                              "regulatory pressure on gig model")}
+   "BKNG" {:thesis (str "travel demand aggregator: 87% gross margin, ~15x "
+                         "FCF growing 14%/yr, no AI-capex arms race, no "
+                         "China exposure")
+           :invalidation (str "direct hotel booking or AI agents "
+                              "disintermediate OTAs; take-rate compression")}})
 
 (def ^:private default-universe
   [{:symbol "AAPL" :label "Apple" :tags #{:mega-tech :consumer-tech}
@@ -92,6 +123,8 @@
     :quality 7 :valuation 6}
    {:symbol "LLY" :label "Eli Lilly" :tags #{:healthcare}
     :quality 8 :valuation 3}
+   {:symbol "LIN" :label "Linde" :tags #{:industrials :healthcare}
+    :quality 9 :valuation 5}
    {:symbol "MA" :label "Mastercard" :tags #{:payments :financials}
     :bonus 8.0 :quality 9 :valuation 6}
    {:symbol "MC.PA" :label "LVMH" :tags #{:luxury :eu} :bonus 3.0
@@ -112,6 +145,8 @@
     :quality 9 :valuation 6}
    {:symbol "SAP" :label "SAP" :tags #{:software :eu :ai-risk}
     :quality 7 :valuation 4}
+   {:symbol "SPGI" :label "S&P Global" :tags #{:financials :data}
+    :quality 9 :valuation 7}
    {:symbol "TSM" :label "TSMC" :tags #{:semis :ai}
     :quality 8 :valuation 6}
    {:symbol "UBER" :label "Uber" :tags #{:transport :platform}
@@ -467,8 +502,7 @@
     (some-> fcf-yield (< 0.02)) (- 5.0)
     (some-> revenue-growth (< 0.0)) (- 5.0)
     (some-> eps-revisions (< 0.0)) (- 4.0)
-    (< ret-1y -0.25) (- 30.0)
-    (< discount 0.05) (- 20.0)))
+    (< ret-1y -0.25) (- 30.0)))
 
 (defn- exit-rule
   [{:keys [price sma200 discount ret-1y]}]
@@ -478,7 +512,8 @@
             (double sma200))
 
     (< ret-1y -0.25)
-    (format "no buy; wait for price back above SMA200 %.2f and 1y trend to improve"
+    (format (str "no buy; wait for price back above SMA200 %.2f and "
+                 "1y trend to improve")
             (double sma200))
 
     :else
@@ -791,6 +826,107 @@
                 st))
             st (:trades st))))
 
+(defn- pending-trade? [{:keys [trade]}]
+  (and trade (not (:executed? trade))))
+
+(defn- release-pending
+  "Remove pending symbols and release budget reserved in this month."
+  [today st symbols]
+  (reduce (fn [st symbol]
+            (let [{:keys [opened trade]} (get-in st [:trades symbol])]
+              (cond-> (update st :trades dissoc symbol)
+                (and (= (month-key today)
+                        (get-in st [:budget :month]))
+                     (= (some-> opened month-key) (month-key today)))
+                (update-in [:budget :spent]
+                           #(max 0.0 (- (or % 0.0)
+                                        (or (:amount trade) 0.0)))))))
+          st symbols))
+
+(defn- drop-ineligible-pending!
+  "Cancel a pending idea when today's complete ranking no longer assigns
+  it a positive amount. Missing market data does not cancel anything."
+  [today rows st]
+  (let [by-symbol (into {} (map (juxt :symbol identity) rows))
+        dropped (for [[symbol trade-row] (:trades st)
+                      :let [row (get by-symbol symbol)]
+                      :when (and (pending-trade? trade-row)
+                                 row
+                                 (not (buyable? row)))]
+                  symbol)]
+    (if (empty? dropped)
+      st
+      (do
+        (alert/send!
+         (str "RICHBOT STOCKS - PENDING CANCELLED AFTER RE-RANK\n"
+              (str/join ", " dropped)
+              " no longer qualifies; reserved budget released."))
+        (release-pending today st dropped)))))
+
+(defn- current-month-spent [today st]
+  (if (= (month-key today) (get-in st [:budget :month]))
+    (get-in st [:budget :spent] 0.0)
+    0.0))
+
+(defn- take-until-amount [needed rows]
+  (loop [selected []
+         released 0.0
+         [row & more] rows]
+    (cond
+      (>= released needed) selected
+      (nil? row) nil
+      :else (recur (conj selected row)
+                   (+ released (:reserved row))
+                   more))))
+
+(defn- replacement-plan
+  "Choose pending ideas to cancel when one fresh candidate is materially
+  better and needs their reserved budget. Returns nil when keeping the
+  current pending set is preferable."
+  [cfg today st rows fresh]
+  (let [budget (get cfg :opportunity-budget default-opportunity-budget)
+        available (max 0.0 (- budget (current-month-spent today st)))
+        by-symbol (into {} (map (juxt :symbol identity) rows))
+        pending (for [[symbol trade-row] (:trades st)
+                      :when (pending-trade? trade-row)
+                      :let [row (get by-symbol symbol)]
+                      :when row]
+                  {:symbol symbol
+                   :score (:score row)
+                   :reserved (or (get-in trade-row [:trade :amount]) 0.0)})
+        pending-symbols (set (map :symbol pending))
+        candidate (->> fresh
+                       (remove #(contains? pending-symbols (:symbol %)))
+                       (sort-by (juxt (comp - :score) :symbol))
+                       first)
+        needed (some-> candidate :amount (- available) (max 0.0))
+        weaker (when candidate
+                 (->> pending
+                      (filter #(< (:score %)
+                                  (- (:score candidate)
+                                     replacement-score-margin)))
+                      (sort-by (juxt :score :symbol))))
+        released (when (some-> needed pos?)
+                   (take-until-amount needed weaker))]
+    (when (seq released)
+      {:candidate candidate
+       :released released})))
+
+(defn- replace-weaker-pending! [cfg today st rows fresh]
+  (if-let [{:keys [candidate released]}
+           (replacement-plan cfg today st rows fresh)]
+    (let [symbols (mapv :symbol released)
+          msg (format (str "RICHBOT STOCKS - BETTER IDEA FOUND\n"
+                           "Cancelled %s; %s now ranks materially higher "
+                           "(%.1f). Reserved budget released.")
+                      (str/join ", " symbols)
+                      (:symbol candidate)
+                      (double (:score candidate)))]
+      (println msg)
+      (alert/send! msg)
+      (release-pending today st symbols))
+    st))
+
 (defn- expire-pending!
   "Drop pending dip ideas older than the expiry window. Releases
   their reserved budget when it was booked in the current budget
@@ -804,35 +940,50 @@
                         (:trades st))]
     (if (empty? expired)
       st
-      (do
+      (let [symbols (mapv key expired)]
         (alert/send!
          (str "RICHBOT STOCKS - ideas de dip caducadas sin ejecutar"
               " (presupuesto liberado): "
-              (str/join ", " (map key expired))))
-        (reduce (fn [st [symbol {:keys [opened trade]}]]
-                  (cond-> (update st :trades dissoc symbol)
-                    (= (month-key opened)
-                       (get-in st [:budget :month]))
-                    (update-in [:budget :spent]
-                               #(max 0.0 (- (or % 0.0)
-                                            (:amount trade))))))
-                st expired)))))
+              (str/join ", " symbols)))
+        (release-pending today st symbols)))))
 
-(defn- pending-line [symbol {:keys [opened trade]}]
-  (format "%s pending execution since %s | planned %.0f EUR"
-          symbol opened (double (:amount trade))))
+(defn- pending-line [ranking symbol {:keys [opened trade]}]
+  (if-let [{:keys [rank score]} (get ranking symbol)]
+    (format "%s optional since %s | %.0f EUR | rank #%d score %.1f"
+            symbol opened (double (:amount trade)) rank (double score))
+    (format "%s optional since %s | %.0f EUR | ranking unavailable"
+            symbol opened (double (:amount trade)))))
 
-(defn- pending-execution-alert! [st]
-  (let [pending (keep (fn [[symbol {:keys [trade] :as row}]]
-                        (when (and trade (not (:executed? trade)))
-                          (pending-line symbol row)))
+(defn- ranking-by-symbol [rows]
+  (->> rows
+       (sort-by (juxt (comp - :score) :symbol))
+       (map-indexed (fn [i {:keys [symbol score]}]
+                      [symbol {:rank (inc i) :score score}]))
+       (into {})))
+
+(defn- pending-execution-alert! [today rows st]
+  (let [ranking (ranking-by-symbol rows)
+        pending (keep (fn [[symbol {:keys [opened
+                                           last-pending-reminder]
+                                    :as row}]]
+                        (when (and (pending-trade? row)
+                                   (nil? last-pending-reminder)
+                                   (>= (days-since
+                                        opened today)
+                                       pending-reminder-after-days))
+                          {:symbol symbol
+                           :line (pending-line ranking symbol row)}))
                       (:trades st))]
     (when (seq pending)
-      (let [msg (str "RICHBOT STOCKS - PENDING EXECUTION\n"
-                     (str/join "\n" pending))]
+      (let [msg (str "RICHBOT STOCKS - OPTIONAL IDEA REVIEW\n"
+                     (str/join "\n" (map :line pending))
+                     "\nRe-ranked today; ignoring it is a valid choice. "
+                     "It expires automatically.")]
         (println msg)
-        (alert/send! msg))))
-  st)
+        (alert/send! msg)))
+  (reduce (fn [st {:keys [symbol]}]
+            (assoc-in st [:trades symbol :last-pending-reminder] today))
+          st pending)))
 
 (defn- nag-due?
   "True when the :nags entry for k is at least `days` old, so the
@@ -869,24 +1020,25 @@
         st (->> st
                 (reconcile-trades cfg)
                 (expire-pending! today)
-                review-active-trades!
-                pending-execution-alert!)
+                review-active-trades!)
         {:keys [signals age]} (load-timesfm-signals cfg today)
         watchlist (watchlist cfg)
-        rows (keep (fn [{:keys [symbol] :as meta}]
-                     (try
-                       (some-> (stats! symbol)
-                               (merge meta)
-                               (->> (merge-timesfm signals)))
-                          (catch Exception e
-                            (println "DIPS SKIP" symbol "-"
-                                     (ex-message e))
-                            nil)))
-                   watchlist)
-        rows (map #(recommendation cfg %) rows)
+        rows (->> watchlist
+                  (keep (fn [{:keys [symbol] :as meta}]
+                          (try
+                            (some-> (stats! symbol)
+                                    (merge meta)
+                                    (->> (merge-timesfm signals)))
+                            (catch Exception e
+                              (println "DIPS SKIP" symbol "-"
+                                       (ex-message e))
+                              nil))))
+                  (mapv #(recommendation cfg %)))
+        st (drop-ineligible-pending! today rows st)
         hits (sort-by (juxt (comp - :score) :symbol)
                       (fires cfg today st rows))
         buy-hits (filter buyable? hits)
+        st (replace-weaker-pending! cfg today st rows buy-hits)
         allocated (allocate cfg today st buy-hits)
         allocated-symbols (set (map :symbol allocated))
         watch (remove #(contains? allocated-symbols (:symbol %)) buy-hits)]
@@ -952,14 +1104,18 @@
                           (str/join "\n" offenders)
                           "\nConsidera no ampliar / recortar hacia "
                           "el indice.")))]
-      (reduce (fn [st {:keys [symbol tier] :as row}]
-                (-> st
-                    (assoc-in [:alerts symbol] {:tier tier :day today})
-                    (assoc-in [:trades symbol :trade] (trade-plan row))
-                    (assoc-in [:trades symbol :opened] today)
-                    (update-in [:budget :spent] (fnil + 0.0)
-                               (:allocated row))))
-              st allocated))))
+      (->> allocated
+           (reduce (fn [st {:keys [symbol tier] :as row}]
+                     (-> st
+                         (assoc-in [:alerts symbol]
+                                   {:tier tier :day today})
+                         (assoc-in [:trades symbol :trade]
+                                   (trade-plan row))
+                         (assoc-in [:trades symbol :opened] today)
+                         (update-in [:budget :spent] (fnil + 0.0)
+                                    (:allocated row))))
+                   st)
+           (pending-execution-alert! today rows)))))
 
 (defn run-scan!
   "Load persisted dip state, scan once, send Telegram if needed,

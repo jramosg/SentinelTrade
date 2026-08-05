@@ -10,6 +10,7 @@
             [richbot.research :as research]
             [richbot.stocks :as stocks]
             [richbot.stocks-research :as stocks-research]
+            [richbot.swing-alerts :as swing-alerts]
             [richbot.strategy :as strat]
             [richbot.walkforward :as wf])
   (:gen-class))
@@ -156,6 +157,17 @@
                                 :adaptive true :train 504}
                      :max-drawdown 0.55
                      :daily-loss 0.20}]}
+   ;; One-week manual stock trade monitor. Yahoo five-minute candles
+   ;; confirm the setup; Telegram tells the user what to do in Revolut.
+   ;; It has no broker credentials and cannot place an order.
+   :swing-alerts
+   {:poll-ms 60000
+    :max-errors 5
+    :state-file ".richbot-swing-alerts-state.edn"
+    :log-file "swing-alerts-events.log"
+    ;; Setups are personal, dated trading decisions. Keep them in the
+    ;; gitignored config.local.edn rather than publishing active advice.
+    :setups []}
    :dips {:tiers [0.05 0.10 0.15 0.20]
           :opportunity-budget 300.0
           :buy-tiers [[0.05 150.0]
@@ -246,6 +258,9 @@
       "portfolio" (portfolio! cfg)
       "stocks" (stocks/plan! config)
       "stocks-advisor" (stocks/start! config)
+      "swing-alerts" (swing-alerts/start! config)
+      "swing-alerts-once" (swing-alerts/run-once! config)
+      "swing-alerts-status" (swing-alerts/status! config)
       "stocks-research" (stocks-research/report! {})
       "stocks-dca" (stocks-research/dca-report! {})
       "stocks-dips" (dips/report! (:dips config))
@@ -262,6 +277,7 @@
                "or dca [1d|4h] [YEARS]"
                "or portfolio|portfolio-live"
                "or stocks|stocks-advisor|stocks-research|stocks-dca"
+               "|swing-alerts|swing-alerts-once|swing-alerts-status"
                "|stocks-dips|stocks-dips-scan"
                "|stocks-dips-status|stocks-dips-backtest|stocks-tax"
                "|stocks-dips-fundamentals-template"))))

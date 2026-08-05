@@ -37,6 +37,16 @@ clojure -M:stocks-dips           # print the scored board
 clojure -M:stocks-dips-scan      # scan once + Telegram (daily cron)
 clojure -M:stocks-dips-status    # pending/executed dip trades
 
+# Intraday swing setup alerts (manual execution in Revolut)
+scripts/swing_alerts.sh status   # print rules and durable state
+scripts/swing_alerts.sh once     # evaluate once
+scripts/swing_alerts.sh start    # detached 5m data + Telegram
+scripts/swing_alerts.sh stop     # stop without leaving a broken REPL
+
+# Optional multi-agent LLM research (never executes or changes bot state)
+scripts/setup_trading_agents.sh
+scripts/run_trading_agents.sh COST
+
 # Live testnet trading loop (needs .env, see below)
 clojure -M:paper
 
@@ -215,7 +225,9 @@ drops more than `:max-drawdown` from its peak, it liquidates and stops
 - `SETUP.md` — full setup checklist, testnet → real money → VPS
 - `VPS-OPERATIONS.md` — deploys (git), crontab, start/stop/restart
 - `STOCKS.md` — stocks advisor + dip scanner manual
+- `SWING-ALERTS.md` — intraday Telegram setup monitor
 - `RESEARCH-REPORT.md` — latest crypto research evidence
+- `TRADING-AGENTS.md` — optional Python multi-agent research layer
 
 ## What this bot is not
 
@@ -224,3 +236,15 @@ reality cheaply and for losing fake money instead of real money while
 you learn. Months of profitable testnet trading is the minimum bar
 before risking a single real euro — and no result here clears that bar
 yet.
+
+## Risk, data, and license
+
+This project is experimental software, not financial advice. Market data can
+be delayed, incomplete, adjusted, or unavailable; alerts can be late or lost;
+and backtests can overfit. No strategy or target is a promise of profit. Stock
+alerts require manual execution, and real-money exchange access should never
+have withdrawal permission.
+
+SentinelTrade is available under the [MIT License](LICENSE). Report security
+issues according to [SECURITY.md](SECURITY.md), never in a public issue that
+contains credentials or private account data.

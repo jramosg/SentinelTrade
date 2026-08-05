@@ -16,7 +16,8 @@
 
 (defn- post!
   [params]
-  (when (enabled?)
+  (if-not (enabled?)
+    false
     (try
       (let [token (env "TELEGRAM_BOT_TOKEN")
             chat-id (env "TELEGRAM_CHAT_ID")
@@ -39,14 +40,20 @@
                                "application/x-www-form-urlencoded"))
         (with-open [out (.getOutputStream conn)]
           (.write out (.getBytes body "UTF-8")))
-        (when (>= (.getResponseCode conn) 400)
-          (println "ALERT ERROR: Telegram HTTP" (.getResponseCode conn))))
+        (let [status (.getResponseCode conn)]
+          (if (>= status 400)
+            (do
+              (println "ALERT ERROR: Telegram HTTP" status)
+              false)
+            true)))
       (catch Exception e
-        (println "ALERT ERROR:" (str e))))))
+        (println "ALERT ERROR:" (str e))
+        false))))
 
 (defn send!
   "Send a Telegram alert when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
-  are configured. Alert failures are printed but never stop trading."
+  are configured. Returns true on delivery. Alert failures are printed but
+  never stop trading."
   [text]
   (post! {:text text}))
 

@@ -1,0 +1,34 @@
+{:live {:capital 100.0}
+ :portfolio {:capital 100.0}
+ :stocks {:capital 1000.0
+          :contribution 600.0
+          :pay-day 7}
+ :swing-alerts
+ {:setups
+  [{:id :replace-with-a-dated-thesis
+    ;; Keep disabled until every placeholder and level is reviewed.
+    :enabled? false
+    :symbol "REPLACE_ME"
+    :capital 100.0
+    :account-currency "EUR"
+    :venue "Manual broker"
+    :zone "America/New_York"
+    :interval-minutes 5
+    :range-str "5d"
+    :max-lag-minutes 30
+    :entry-start "2099-01-04"
+    :entry-end "2099-01-04"
+    :not-before "10:00"
+    :not-after "11:30"
+    :session-open-min 90.0
+    :session-open-max 110.0
+    :entry {:min 98.0
+            :trigger 100.0
+            :max 102.0
+            :confirm-bars 3}
+    :stop 90.0
+    :targets [{:price 110.0 :fraction 0.50}
+              {:price 120.0 :fraction 0.50}]
+    :expires "2099-01-11"
+    :exit-time "15:55"}]}
+ :dips {:owned #{}}}

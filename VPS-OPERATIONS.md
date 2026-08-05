@@ -32,6 +32,10 @@ contribution, pay day, owned holdings) and is deep-merged over
  :dips {:owned #{"MSFT" "VWCE.DE"}}}
 ```
 
+Use `config.example.edn` as a public schema reference. Never commit the real
+file: dated swing setups, position sizes, and holdings remain personal even
+when they do not contain credentials.
+
 The other two are copied when they change:
 
 ```sh
@@ -107,12 +111,30 @@ pkill -f "richbot.core stocks[-]advisor"                       # stop
 tail -f stocks-advisor.log                                     # watch
 ```
 
+### Intraday swing alerts (Telegram, manual orders)
+
+Swing setups are deliberately absent from the public defaults. Add a reviewed,
+dated setup to the VPS `config.local.edn`, then use the lifecycle wrapper:
+
+```sh
+cd ~/richbot
+scripts/swing_alerts.sh start
+scripts/swing_alerts.sh status
+scripts/swing_alerts.sh stop
+```
+
+The wrapper manages a PID file, changes to the correct repository directory,
+and disconnects standard input before backgrounding Clojure. It is not in the
+watchdog or `@reboot` configuration by default: an expired setup should not be
+rearmed merely because the server restarted.
+
 ## After deploying, what to restart
 
 | What changed | Restart |
 |---|---|
 | crypto code/config (`live.clj`, `binance.clj`, crypto slots) | `portfolio-live` |
 | stocks advisor code/config (`stocks.clj`, `dca.clj`, stocks slots) | `stocks-advisor` |
+| swing alert code/config | `scripts/swing_alerts.sh restart` if intentionally active |
 | dip scanner (`dips.clj`, `:dips` config) | nothing — next cron run uses it |
 | research code, `quarterly-research.sh` | nothing — next cron run uses it |
 | docs | nothing |

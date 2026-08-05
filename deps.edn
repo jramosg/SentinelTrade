@@ -11,6 +11,11 @@
   :dca {:main-opts ["-m" "richbot.core" "dca"]}
   :stocks {:main-opts ["-m" "richbot.core" "stocks"]}
   :stocks-advisor {:main-opts ["-m" "richbot.core" "stocks-advisor"]}
+  :swing-alerts {:main-opts ["-m" "richbot.core" "swing-alerts"]}
+  :swing-alerts-once
+  {:main-opts ["-m" "richbot.core" "swing-alerts-once"]}
+  :swing-alerts-status
+  {:main-opts ["-m" "richbot.core" "swing-alerts-status"]}
   :stocks-research {:main-opts ["-m" "richbot.core" "stocks-research"]}
   :stocks-dca {:main-opts ["-m" "richbot.core" "stocks-dca"]}
   :stocks-dips {:main-opts ["-m" "richbot.core" "stocks-dips"]}

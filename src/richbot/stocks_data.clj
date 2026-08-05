@@ -27,14 +27,21 @@
                         {:status status :url url :body body})))
       (json/read-str body :key-fn keyword))))
 
-(defn- chart! [symbol range-str]
+(defn- chart-with-params!
+  [symbol interval range-str include-prepost?]
   (let [result (-> (get-json! (str base symbol
-                                   "?interval=1d&range=" range-str
-                                   "&events=div"))
+                                   "?interval=" interval
+                                   "&range=" range-str
+                                   "&events=div"
+                                   "&includePrePost="
+                                   (boolean include-prepost?)))
                    :chart :result first)]
     (when-not result
       (throw (ex-info "Yahoo: no data" {:symbol symbol})))
     result))
+
+(defn- chart! [symbol range-str]
+  (chart-with-params! symbol "1d" range-str false))
 
 (defn- ->candles
   "Build candle maps; when adjust? scale OHLC by adjclose/close so
@@ -64,6 +71,20 @@
   ([symbol years] (daily-candles! symbol years {:adjust? true}))
   ([symbol years {:keys [adjust?] :or {adjust? true}}]
    (->candles (chart! symbol (str (max 1 (long (Math/ceil years))) "y"))
+              adjust?)))
+
+(defn intraday-candles!
+  "Recent intraday candles for a Yahoo symbol. Defaults to five-minute
+  regular-session candles over five days. Intraday prices are not adjusted
+  unless explicitly requested."
+  ([symbol] (intraday-candles! symbol {}))
+  ([symbol {:keys [interval range-str include-prepost? adjust?]
+            :or {interval "5m"
+                 range-str "5d"
+                 include-prepost? false
+                 adjust? false}}]
+   (->candles (chart-with-params! symbol interval range-str
+                                 include-prepost?)
               adjust?)))
 
 (defn last-price!

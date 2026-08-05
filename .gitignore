@@ -21,11 +21,17 @@ resources/
 fundamentals.csv
 
 # tooling caches
+__pycache__/
 .cpcache/
 .clj-kondo/.cache
 .lsp/.cache
 .calva/repl.calva-repl
 .nrepl-port
+.venv-tradingagents/
+
+# optional TradingAgents research runtime and generated reports
+.richbot-trading-agents/
+reports/trading-agents/
 
 # os
 .DS_Store

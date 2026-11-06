@@ -8,9 +8,17 @@
 # Note: if a process keeps crashing (e.g. exchange unreachable),
 # this restarts it at most once per cron run — expect one Telegram
 # alert per cycle until the cause is fixed.
+#
+# Never starts a second copy: overlapping watchdog runs exit at once,
+# and every process is started holding /run/lock/richbot-<alias>.lock
+# for its whole life, so a copy still booting (not yet visible to
+# pgrep) blocks another start. Start processes by hand the same way:
+#   flock -n /run/lock/richbot-stocks-advisor.lock clojure -M:stocks-advisor
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 [ -f .maintenance ] && exit 0
+exec 9> /run/lock/richbot-watchdog.lock
+flock -n 9 || exit 0
 set -a; source .env; set +a
 
 alert() {
@@ -22,12 +30,14 @@ alert() {
 
 ensure() {
   local pattern="$1" alias="$2" log="$3" extra="${4:-}"
-  if ! pgrep -f "$pattern" > /dev/null; then
-    # shellcheck disable=SC2086
-    nohup clojure "-M:$alias" $extra >> "$log" 2>&1 &
-    alert "WATCHDOG richbot: $alias estaba caido, reiniciado $(date -u +%FT%TZ). Revisa $log si se repite."
-    echo "$(date -u +%FT%TZ) restarted $alias"
-  fi
+  local lock="/run/lock/richbot-$alias.lock"
+  pgrep -f "$pattern" > /dev/null && return
+  # Held by a copy that is still starting: leave it alone.
+  flock -n "$lock" true 9>&- || return
+  # shellcheck disable=SC2086
+  nohup flock -n "$lock" clojure "-M:$alias" $extra >> "$log" 2>&1 9>&- &
+  alert "WATCHDOG richbot: $alias estaba caido, reiniciado $(date -u +%FT%TZ). Revisa $log si se repite."
+  echo "$(date -u +%FT%TZ) restarted $alias"
 }
 
 # portfolio-live (crypto, real money) is intentionally NOT auto-ensured:
